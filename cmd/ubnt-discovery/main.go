@@ -25,7 +25,7 @@ func main() {
 		interfaces = append(interfaces, iface)
 	}
 
-	notifier, err := discovery.AutoDiscover(interfaces...)
+	notifier, quitter, err := discovery.AutoDiscover(interfaces...)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -34,6 +34,7 @@ func main() {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
+	close(quitter)
 	os.Exit(0)
 }
 
