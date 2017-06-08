@@ -1,14 +1,14 @@
-# ubnt-go
+# ubnt-tools
 
 Discovery and provisioning of Ubiquiti AirMax devices.
 
 ## `ubnt-discovery`
 
-[![GoDoc](https://godoc.org/github.com/digineo/ubnt-go/discovery?status.svg)](http://godoc.org/github.com/digineo/ubnt-go/discovery)
+[![GoDoc](https://godoc.org/github.com/digineo/ubnt-tools/discovery?status.svg)](http://godoc.org/github.com/digineo/ubnt-tools/discovery)
 
 This will install the discovery tool in `$GOPATH/bin/ubnt-discovery`:
 
-    go get github.com/digineo/ubnt-go/cmd/ubnt-discovery
+    go get github.com/digineo/ubnt-tools/cmd/ubnt-discovery
 
 ### Usage
 

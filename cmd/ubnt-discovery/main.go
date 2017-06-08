@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/digineo/ubnt-go/discovery"
+	"github.com/digineo/ubnt-tools/discovery"
 )
 
 var syslog = flag.Bool("syslog", false, "Disable log timestamps and redirect output to stdout")
