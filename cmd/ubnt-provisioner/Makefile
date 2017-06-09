@@ -7,10 +7,7 @@ DEPS       += $(shell find ../../provisioner -type f -name '*.go')
 DEPS       += $(shell find . -type f -name '*.go')
 
 ASSETS      = ../../provisioner/ui/bindata.go
-INDEX       = ../../provisioner/ui/dist/views/index.html
-
 ASSET_DEPS  = $(shell find ../../provisioner/ui/src -type f)
-ASSET_DEPS += $(INDEX)
 
 .PHONY: $(NAME)
 $(NAME): $(DEPS) $(ASSETS)
