@@ -55,23 +55,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	notifier, _, err := discovery.AutoDiscover(configuration.InterfaceNames...)
+	discover, _, err := discovery.AutoDiscover(logDevice, configuration.InterfaceNames...)
 	if err != nil {
 		log.Fatal(err)
 	}
-	go logDevice(notifier)
 	go web.StartWeb(configuration)
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	<-sigs
+
+	discover.Close()
 	os.Exit(0)
 }
 
-func logDevice(n <-chan *discovery.Device) {
-	for device := range n {
-		log.Printf("[main] (re-) discovered %s (%s)", device.Hostname, device.MacAddress)
-	}
+func logDevice(device *discovery.Device) {
+	log.Printf("[main] (re-) discovered %s (%s)", device.Hostname, device.MacAddress)
 }
 
 func printExampleConfig() {

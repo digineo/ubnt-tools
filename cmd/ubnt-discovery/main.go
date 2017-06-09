@@ -36,21 +36,18 @@ func main() {
 		interfaces = append(interfaces, iface)
 	}
 
-	notifier, quitter, err := discovery.AutoDiscover(interfaces...)
+	discover, err := discovery.AutoDiscover(logDevice, interfaces...)
 	if err != nil {
 		log.Fatal(err)
 	}
-	go logDevice(notifier)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	close(quitter)
+	discover.Close()
 	os.Exit(0)
 }
 
-func logDevice(n <-chan *discovery.Device) {
-	for device := range n {
-		log.Printf("[discovery] found new device:\n%s", device)
-	}
+func logDevice(device *discovery.Device) {
+	log.Printf("[discovery] found new device:\n%s", device)
 }

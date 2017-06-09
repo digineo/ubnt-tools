@@ -10,29 +10,39 @@ import (
 )
 
 const (
-	discoveryPort      = uint16(10001)
+	discoveryPort      = 10001
 	discoveryBroadcast = "255.255.255.255"
 	discoveryMulticast = "233.89.188.1"
+
+	backoff     = 1.02
+	minDuration = 4 * time.Second
+	maxDuration = 15 * time.Second
 )
 
 var (
-	udpConnections []*net.UDPConn
-	incoming       chan *Packet
-	discovered     = make(map[string]*Device)
-	helloPacket    = map[int][]byte{
+	helloPacket = map[int][]byte{
 		1: {0x01, 0x00, 0x00, 0x00},
 		2: {0x02, 0x0a, 0x00, 0x00},
 	}
-	runLock = &sync.Mutex{}
-	mutex   = &sync.RWMutex{}
 )
+
+type NotifyHandler func(*Device)
+
+type Discover struct {
+	NotifyHandler NotifyHandler
+	connections   []*net.UDPConn
+	incoming      chan *Packet
+	stop          chan interface{}
+	devices       map[string]*Device // discovered devices
+	mutex         sync.RWMutex
+	wg            sync.WaitGroup
+}
 
 // AutoDiscover starts the UBNT auto discovery mechanism. It returns a
 // notifier channel which receives newly discovered devices (i.e. a
 // device already seen won't be send again). You can stop the discovery
 // by closing the quit channel.
-func AutoDiscover(interfaceNames ...string) (notifier <-chan *Device, quit chan<- struct{}, err error) {
-	runLock.Lock()
+func AutoDiscover(notify NotifyHandler, interfaceNames ...string) (d *Discover, err error) {
 	var locals []*net.UDPAddr
 
 	for _, interfaceName := range interfaceNames {
@@ -46,7 +56,14 @@ func AutoDiscover(interfaceNames ...string) (notifier <-chan *Device, quit chan<
 		return
 	}
 
-	errs := listenMulticast(locals)
+	d = &Discover{
+		devices:       make(map[string]*Device),
+		stop:          make(chan interface{}),
+		incoming:      make(chan *Packet, 32),
+		NotifyHandler: notify,
+	}
+
+	errs := d.listenMulticast(locals)
 	if len(errs) > 0 {
 		for i, e := range errs {
 			log.Printf("Error %d: %s", i, e.Error())
@@ -55,28 +72,20 @@ func AutoDiscover(interfaceNames ...string) (notifier <-chan *Device, quit chan<
 		return
 	}
 
-	stop := make(chan struct{})
-	recv := make(chan *Device, 16)
-	incoming = make(chan *Packet, 32)
-	go func() {
-		<-stop
-		close(incoming)
-		close(recv)
-		for _, conn := range udpConnections {
-			conn.Close()
-		}
+	go d.pingDevices()
+	go d.handleIncoming()
 
-		udpConnections = make([]*net.UDPConn, 0)
+	return d, nil
+}
 
-		mutex.Lock()
-		discovered = make(map[string]*Device)
-		mutex.Unlock()
-		runLock.Unlock()
-	}()
-	go pingDevices(stop)
-	go handleIncoming(recv)
-
-	return recv, stop, nil
+// Close closes ...
+func (d *Discover) Close() {
+	close(d.stop)
+	for _, conn := range d.connections {
+		conn.Close()
+	}
+	d.wg.Wait()
+	close(d.incoming)
 }
 
 func interfaceAddresses(ifaceName string) (result []net.IP) {
@@ -105,63 +114,63 @@ func interfaceAddresses(ifaceName string) (result []net.IP) {
 }
 
 // pings devices and sleeps with exponential back-off (up to a maximum)
-func pingDevices(quitter <-chan struct{}) {
-	var (
-		duration = 4 * time.Second
-		max      = 15 * time.Second
-		backoff  = 1.02
-	)
+func (d *Discover) pingDevices() {
+	var duration time.Duration
 
 	for {
 		select {
-		case <-quitter:
+		case <-d.stop:
 			return
-		default:
-			pingMulticast(discoveryMulticast, discoveryPort, helloPacket[1])
-			pingMulticast(discoveryBroadcast, discoveryPort, helloPacket[1])
+		case <-time.After(duration):
+			d.pingMulticast(discoveryMulticast, helloPacket[1])
+			d.pingMulticast(discoveryBroadcast, helloPacket[1])
 
-			log.Printf("[discovery] sent broadcast, will send again in %v", duration)
-			time.Sleep(duration)
-			if duration < max {
+			if duration.Nanoseconds() == 0 {
+				duration = minDuration
+			} else if duration < maxDuration {
 				duration = time.Duration(backoff * float64(duration))
 			}
+			log.Printf("[discovery] sent broadcast, will send again in %v", duration)
 		}
 	}
 }
 
-func pingMulticast(addr string, port uint16, msg []byte) {
+func (d *Discover) pingMulticast(addr string, msg []byte) {
 	udpAddr := &net.UDPAddr{
 		IP:   net.ParseIP(addr),
-		Port: int(port),
+		Port: discoveryPort,
 	}
 
-	for _, conn := range udpConnections {
+	for _, conn := range d.connections {
 		conn.WriteToUDP(msg, udpAddr)
 	}
 }
 
-func listenMulticast(addrs []*net.UDPAddr) (errs []error) {
+func (d *Discover) listenMulticast(addrs []*net.UDPAddr) (errs []error) {
 	for _, addr := range addrs {
 		if conn, err := net.ListenUDP("udp", addr); err != nil {
 			errs = append(errs, err)
 		} else {
-			udpConnections = append(udpConnections, conn)
+			d.connections = append(d.connections, conn)
 		}
 	}
 	if len(errs) == 0 {
-		for _, conn := range udpConnections {
+		for _, conn := range d.connections {
 			log.Printf("[discovery] listen on %s", conn.LocalAddr())
-			go packetHandler(conn)
+			go d.packetHandler(conn)
 		}
 	} else {
-		for _, conn := range udpConnections {
+		for _, conn := range d.connections {
 			conn.Close()
 		}
 	}
 	return errs
 }
 
-func packetHandler(conn *net.UDPConn) {
+func (d *Discover) packetHandler(conn *net.UDPConn) {
+	d.wg.Add(1)
+	defer d.wg.Done()
+
 	buf := make([]byte, 1500)
 	for {
 		n, _, err := conn.ReadFromUDP(buf)
@@ -178,41 +187,43 @@ func packetHandler(conn *net.UDPConn) {
 		copy(cpy, buf[:n])
 
 		if packet, err := ParsePacket(cpy[:n]); err == nil {
-			incoming <- packet
+			d.incoming <- packet
 		} else {
 			log.Printf("Could not parse packet: %s\n%s\n", err.Error(), hex.Dump(cpy[:n]))
 		}
 	}
 }
 
-func handleIncoming(notifier chan<- *Device) {
-	for packet := range incoming {
+func (d *Discover) handleIncoming() {
+	for packet := range d.incoming {
 		dev := packet.Device()
-		mutex.RLock()
-		old, seen := discovered[dev.MacAddress]
-		mutex.RUnlock()
+		d.mutex.RLock()
+		old, seen := d.devices[dev.MacAddress]
+		d.mutex.RUnlock()
 
 		if !seen || !old.RecentlySeen(1*time.Minute) {
-			notifier <- dev
+			if handler := d.NotifyHandler; d != nil {
+				handler(dev)
+			}
 		}
 
-		mutex.Lock()
+		d.mutex.Lock()
 		if seen {
 			old.Merge(dev)
 		} else {
-			discovered[dev.MacAddress] = dev
+			d.devices[dev.MacAddress] = dev
 		}
-		mutex.Unlock()
+		d.mutex.Unlock()
 	}
 }
 
 // List all discovered devices so far. Will create duplicates of the
 // actual device list, so that it'll be safe to work with the result.
-func List() (list []*Device) {
-	mutex.RLock()
-	defer mutex.RUnlock()
+func (d *Discover) List() (list []*Device) {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
 
-	for _, dev := range discovered {
+	for _, dev := range d.devices {
 		list = append(list, dev.Clone())
 	}
 	return
@@ -220,11 +231,11 @@ func List() (list []*Device) {
 
 // Find will search the list of discovered devices for an entry with
 // matching MAC address, and return a duplicate.
-func Find(mac string) *Device {
-	mutex.RLock()
-	defer mutex.RUnlock()
+func (d *Discover) Find(mac string) *Device {
+	d.mutex.RLock()
+	defer d.mutex.RUnlock()
 
-	for _, dev := range discovered {
+	for _, dev := range d.devices {
 		if mac == dev.MacAddress {
 			return dev.Clone()
 		}
