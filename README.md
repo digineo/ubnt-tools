@@ -8,13 +8,13 @@ Discovery and provisioning of Ubiquiti AirMax devices.
 
 This will install the discovery tool in `$GOPATH/bin/ubnt-discovery`:
 
-    go get github.com/digineo/ubnt-tools/cmd/ubnt-discovery
+    $ go get github.com/digineo/ubnt-tools/cmd/ubnt-discovery
 
 ### Usage
 
 Simply invoke the discovery tool with an interface name:
 
-    ubnt-discovery eth0
+    $ ubnt-discovery eth0
 
 This will broadcast the discovery packages (with exponential back-off),
 and report back the newly discovered devices:
