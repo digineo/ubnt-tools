@@ -40,12 +40,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer discover.Close()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	discover.Close()
-	os.Exit(0)
+	sigs := make(chan os.Signal)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	<-sigs
 }
 
 func logDevice(device *discovery.Device) {

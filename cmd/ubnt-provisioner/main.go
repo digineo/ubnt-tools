@@ -59,14 +59,12 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer discover.Close()
 	go web.StartWeb(configuration)
 
-	sigs := make(chan os.Signal, 1)
+	sigs := make(chan os.Signal)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	<-sigs
-
-	discover.Close()
-	os.Exit(0)
 }
 
 func logDevice(device *discovery.Device) {
