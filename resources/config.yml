@@ -1,0 +1,22 @@
+config_directory: /var/ubnt-tools/provisioner/configurations
+firmware_directory: /var/ubnt-tools/provisioner/firmwares
+
+safe_upgrade_paths:
+  "XC.v7.2.4.31259.160714.1715.bin":
+    - "XC.qca955x.v7.2.1.30741.160412.1342"
+
+  "XC.v8.1.4.34481.170608.1728.bin":
+    - "XC.qca955x.v7.2.1.30741.160412.1342"
+    - "XC.qca955x.v8.0.2.33352.170327.1907"
+
+interfaces:
+- eth0.1007
+
+ssh:
+- type: keyfile
+  path: /var/ubnt-tools/provisionoer/id_rsa_provisioner
+- password: ubnt
+
+web:
+  host: 127.0.0.1
+  port: 8007

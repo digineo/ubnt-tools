@@ -131,7 +131,8 @@ First, create a config file. To get an example config file, run
     $ ubnt-provisioner -h
 
 and save the example to `config.yml` (the name can be arbitrary).
-Modify the content to your needs.
+Modify the content to your needs. See `resources/config.yml` for another
+sample.
 
 Then start the provisioner:
 
@@ -154,4 +155,4 @@ Then start the provisioner:
 Finally, point your web browser with address given (in this case
 <http://127.0.0.1:8007>):
 
-![Screenshot provisioner](images/provisioner.png)
+![Screenshot provisioner](resources/provisioner.png)
