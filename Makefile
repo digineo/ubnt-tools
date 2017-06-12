@@ -26,7 +26,7 @@ clobber: clean
 
 .PHONY: release
 release: $(RELEASE_ARCHIVES)
-	sha256sum $(RELEASE_ARCHIVES)
+	cd bin && sha256sum $(notdir $(RELEASE_ARCHIVES))
 
 $(RELEASE_PATTERN): bin/%
 	cp resources/config.yml $</provisioner.config.yml
