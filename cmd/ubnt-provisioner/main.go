@@ -55,7 +55,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	discover, _, err := discovery.AutoDiscover(logDevice, configuration.InterfaceNames...)
+	discover, err := configuration.StartAutoDiscover(logDevice)
 	if err != nil {
 		log.Fatal(err)
 	}
