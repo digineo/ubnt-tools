@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+
+import csv
+import re
+import os
+from collections import defaultdict
+
+structs = defaultdict(lambda: list())
+
+types = {
+    "DISPLAYSTRING": "string",
+    "IPADDRESS":     "net.IP",
+    "OCTET STRING":  "[]byte",
+    "INTEGER":       "int",
+    "INTEGER32":     "int32",
+    "COUNTER32":     "uint32",
+}
+
+print('import "net"')
+
+
+with open('ubntUnifi.csv') as f:
+    reader = csv.DictReader(f)
+
+    for row in reader:
+        (_, parent, name) = row["Full Name"].rsplit(".",2)
+
+        match = re.search('^SEQUENCE OF (.+)', row['Type'])
+        if match:
+            row["Type"] = "[]" + match.group(1)
+            structs[parent].append(row)
+        elif row['Access'] != "not-accessible":
+            structs[parent].append(row)
+
+for k, fields in structs.items():
+    names = list(map(lambda x: x['Name'], fields))
+
+    prefix = os.path.commonprefix(list(names))
+    print("type "+k+" struct {")
+#
+    for row in fields:
+        name = row['Name'] #[len(prefix):]
+        type = row["Type"] or row["Name"]
+        type = types.get(type.upper(), type)
+
+        print("\t{name}\t{type}\t`oid=\"{oid}\"`".format(name=name, oid=row["OID"], type=type))
+
+    print("}\n")
