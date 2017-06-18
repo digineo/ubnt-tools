@@ -3,10 +3,15 @@
 import csv
 import re
 import os
+import sys
 from collections import defaultdict
 
-structs = defaultdict(lambda: list())
+def generateName(val):
+    return re.sub(r'^(unifi|ubnt|Ubnt)', "", val)
 
+output = open(sys.argv[2],"w")
+structs = defaultdict(lambda: list())
+structNames = {}
 types = {
     "DISPLAYSTRING": "string",
     "IPADDRESS":     "net.IP",
@@ -15,19 +20,21 @@ types = {
     "INTEGER32":     "int32",
     "COUNTER32":     "uint32",
 }
+output.write('package snmp\n\n')
+output.write('import "net"\n\n')
 
-print('import "net"')
 
-
-with open('ubntUnifi.csv') as f:
+with open(sys.argv[1]) as f:
     reader = csv.DictReader(f)
 
     for row in reader:
         (_, parent, name) = row["Full Name"].rsplit(".",2)
 
+        structNames[row["Name"]] = row["Type"] or row["Name"]
+
         match = re.search('^SEQUENCE OF (.+)', row['Type'])
         if match:
-            row["Type"] = "[]" + match.group(1)
+            row["Type"] = "[]" + generateName(match.group(1))
             structs[parent].append(row)
         elif row['Access'] != "not-accessible":
             structs[parent].append(row)
@@ -35,14 +42,22 @@ with open('ubntUnifi.csv') as f:
 for k, fields in structs.items():
     names = list(map(lambda x: x['Name'], fields))
 
-    prefix = os.path.commonprefix(list(names))
-    print("type "+k+" struct {")
+    if len(names) > 1:
+        prefix = os.path.commonprefix(list(names))
+    else:
+        prefix = ""
+
+    k = generateName(structNames.get(k,k))
+    output.write("type "+k+" struct {\n")
 #
     for row in fields:
-        name = row['Name'] #[len(prefix):]
+        name = row['Name'][len(prefix):]
+        name = generateName(name)
+        name = re.sub(r'I[dp]$', lambda match: match.group(0).upper(), name)
+        
         type = row["Type"] or row["Name"]
-        type = types.get(type.upper(), type)
+        type = generateName(types.get(type.upper(), "*"+type))
 
-        print("\t{name}\t{type}\t`oid=\"{oid}\"`".format(name=name, oid=row["OID"], type=type))
+        output.write("\t{name}\t{type}\t`oid:\"{oid}\"`\n".format(name=name, oid=row["OID"], type=type))
 
-    print("}\n")
+    output.write("}\n")
