@@ -3,46 +3,88 @@
 import csv
 import re
 import os
+import sys
 from collections import defaultdict
 
+def generateName(val):
+    return re.sub(r'^(unifi|ubnt|Ubnt)', "", val)
+
+output = open(sys.argv[2],"w")
 structs = defaultdict(lambda: list())
-
+structNames = {}
 types = {
-    "DISPLAYSTRING": "string",
-    "IPADDRESS":     "net.IP",
-    "OCTET STRING":  "[]byte",
-    "INTEGER":       "int",
-    "INTEGER32":     "int32",
-    "COUNTER32":     "uint32",
+    "DISPLAYSTRING": ("string", "pduString"),
+    "IPADDRESS":     ("net.IP", "pduIP"),
+    "OCTET STRING":  ("[]byte", "pduBytes"),
+    "INTEGER":       ("int",    "pduInt"),
+    "INTEGER32":     ("int32",  "pduInt32"),
+    "COUNTER32":     ("uint32", "pduUint32"),
 }
+output.write('package snmp\n\n')
+output.write('import "net"\n\n')
 
-print('import "net"')
 
-
-with open('ubntUnifi.csv') as f:
+with open(sys.argv[1]) as f:
     reader = csv.DictReader(f)
 
     for row in reader:
         (_, parent, name) = row["Full Name"].rsplit(".",2)
 
+        structNames[row["Name"]] = row["Type"] or row["Name"]
+
         match = re.search('^SEQUENCE OF (.+)', row['Type'])
         if match:
-            row["Type"] = "[]" + match.group(1)
+            row["Type"] = "[]" + generateName(match.group(1))
+            row["Sequence"] = True
             structs[parent].append(row)
         elif row['Access'] != "not-accessible":
             structs[parent].append(row)
 
-for k, fields in structs.items():
+for k, fields in sorted(structs.items()):
     names = list(map(lambda x: x['Name'], fields))
 
-    prefix = os.path.commonprefix(list(names))
-    print("type "+k+" struct {")
+    if len(names) > 1:
+        prefix = os.path.commonprefix(list(names))
+    else:
+        prefix = ""
+
+    k = generateName(structNames.get(k,k))
+    output.write("type "+k+" struct {\n")
 #
     for row in fields:
-        name = row['Name'] #[len(prefix):]
+        name = row['Name'][len(prefix):]
+        name = generateName(name)
+        name = re.sub(r'I[dp]$', lambda match: match.group(0).upper(), name)
+        row['name'] = name
+
         type = row["Type"] or row["Name"]
-        type = types.get(type.upper(), type)
+        try:
+            (row['type'], f) = types[type.upper()]
+            row['func'] = 'obj.'+row['name']+' = '+f+'(pdu)'
+        except KeyError:
+            row['type'] = type
+            if "Sequence" in row:
+                row['func'] = "\t" + "\n\t".join([
+                    '//' + row['type'],
+                    'i := LastIndexByte(pdu.Name,".")',
+                    'index, _ := strconv.Atoi(pdu.Name[i+1:])',
+                    'if len(obj.'+row['name']+') == index {',
+                    '  obj.'+row['name']+' = append(obj.'+row['name']+', '+ row['type'][2:] + '{})'
+                    '}',
+                    'if len(obj.'+row['name']+') > index {',
+                    '  pdu.Name = pdu.Name[:i]',
+                    '  obj.'+row['name']+'[index].Assign(pdu)'
+                    '}'
+                ])
+            else:
+                row['func'] =  'obj.'+row['name']+'.Assign(pdu)'
 
-        print("\t{name}\t{type}\t`oid=\"{oid}\"`".format(name=name, oid=row["OID"], type=type))
+    for row in fields:
+        output.write("\t{name}\t{type}\t // {oid}\n".format(name=row['name'], oid=row["OID"], type=row['type']))
+    output.write("}\n")
 
-    print("}\n")
+    output.write("func (obj *"+k+") Assign (pdu SnmpPDU){\n")
+    output.write("\tswitch pdu.Name {\n")
+    for row in fields:
+        output.write('\tcase "' + row['OID'].split(".")[-1] + '":\n\t\t' + row['func'] + ' \n')
+    output.write("\t}\n}\n")
